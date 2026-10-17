@@ -544,6 +544,7 @@ fn eager_module_global(spec: &str) -> Option<&'static str> {
         "fs" | "node:fs" => "__fs",
         "fs/promises" | "node:fs/promises" => "__fsPromises",
         "zlib" | "node:zlib" => "__zlibModule",
+        "net" | "node:net" => "__netModule",
         _ => return None,
     })
 }

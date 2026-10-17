@@ -11381,6 +11381,43 @@ __celld.__fs = __fsNamespaceProxy(
   __fsNamespaceNames,
   ["readdirSync", "readlinkSync"],
 );
+// node:net's address predicates are pure, so they are real here; sockets and
+// servers stay loud stubs until cloudflare:sockets backs them. Drivers probe
+// `net.isIP` before a TLS upgrade to decide whether to send SNI (node-postgres
+// guards with `net.isIP && net.isIP(host) === 0`), and the stub is truthy and
+// throws, so without these a driver's TLS path fails before the handshake.
+// The patterns are Node's own (lib/internal/net.js), so answers match exactly,
+// zone ids and IPv4-mapped IPv6 included.
+const __netV4Seg = "(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])";
+const __netV4Str = `(?:${__netV4Seg}\\.){3}${__netV4Seg}`;
+const __netV6Seg = "(?:[0-9a-fA-F]{1,4})";
+const __netIPv4 = new RegExp(`^${__netV4Str}$`);
+const __netIPv6 = new RegExp("^(?:" +
+  `(?:${__netV6Seg}:){7}(?:${__netV6Seg}|:)|` +
+  `(?:${__netV6Seg}:){6}(?:${__netV4Str}|:${__netV6Seg}|:)|` +
+  `(?:${__netV6Seg}:){5}(?::${__netV4Str}|(?::${__netV6Seg}){1,2}|:)|` +
+  `(?:${__netV6Seg}:){4}(?:(?::${__netV6Seg}){0,1}:${__netV4Str}|(?::${__netV6Seg}){1,3}|:)|` +
+  `(?:${__netV6Seg}:){3}(?:(?::${__netV6Seg}){0,2}:${__netV4Str}|(?::${__netV6Seg}){1,4}|:)|` +
+  `(?:${__netV6Seg}:){2}(?:(?::${__netV6Seg}){0,3}:${__netV4Str}|(?::${__netV6Seg}){1,5}|:)|` +
+  `(?:${__netV6Seg}:){1}(?:(?::${__netV6Seg}){0,4}:${__netV4Str}|(?::${__netV6Seg}){1,6}|:)|` +
+  `(?::(?:(?::${__netV6Seg}){0,5}:${__netV4Str}|(?::${__netV6Seg}){1,7}|:))` +
+")(?:%[0-9a-zA-Z-.:]{1,})?$");
+const __netIsIPv4 = (input) => __netIPv4.test(input);
+const __netIsIPv6 = (input) => __netIPv6.test(input);
+__celld.__netModule = __fsNamespaceProxy(
+  {
+    isIP: (input) => __netIsIPv4(input) ? 4 : __netIsIPv6(input) ? 6 : 0,
+    isIPv4: __netIsIPv4,
+    isIPv6: __netIsIPv6,
+  },
+  "node:net",
+  [
+    "BlockList", "Server", "Socket", "SocketAddress", "Stream", "connect",
+    "createConnection", "createServer", "getDefaultAutoSelectFamily",
+    "getDefaultAutoSelectFamilyAttemptTimeout", "setDefaultAutoSelectFamily",
+    "setDefaultAutoSelectFamilyAttemptTimeout",
+  ],
+);
 const __bridgeResponseStream = (body, requestControllers) => {
   const streamId = __response_stream_create();
   const pump = (async () => {
