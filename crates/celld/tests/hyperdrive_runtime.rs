@@ -8,12 +8,17 @@
 // That also installs the pinned esbuild; CELLD_ESBUILD overrides it. Without
 // the dependencies the tests skip; CELLD_TEST_STRICT=1 makes a skip fail.
 //
-// The PostgreSQL test runs when CELLD_TEST_POSTGRES_URL names a database whose
-// server has TLS on with a certificate celld does not trust, for example:
+// The PostgreSQL test requires a fresh, disposable superuser fixture with
+// SCRAM passwords and SCRAM required for every host rule (IPv4 and IPv6).
+// It inspects pg_authid/pg_hba_file_rules; never point it at production.
+// TLS must use a certificate celld does not trust:
 //
 //     docker run -d --rm --name celld-test-pg -p 127.0.0.1:55432:5432 \
 //       -p '[::1]:55432:5432' -e POSTGRES_USER=celld \
-//       -e POSTGRES_PASSWORD=hunter2 -e POSTGRES_DB=celld postgres:17 \
+//       -e POSTGRES_PASSWORD=hunter2 -e POSTGRES_DB=celld \
+//       -e POSTGRES_HOST_AUTH_METHOD=scram-sha-256 \
+//       -e 'POSTGRES_INITDB_ARGS=--auth-host=scram-sha-256 --auth-local=trust' \
+//       postgres:17 -c password_encryption=scram-sha-256 \
 //       -c ssl=on -c ssl_cert_file=/etc/ssl/certs/ssl-cert-snakeoil.pem \
 //       -c ssl_key_file=/etc/ssl/private/ssl-cert-snakeoil.key
 //     CELLD_TEST_POSTGRES_URL=postgres://celld:hunter2@127.0.0.1:55432/celld \
@@ -377,6 +382,27 @@ fn binding_against_postgres() {
     let database = url::Url::parse(&base).unwrap().path()[1..].to_string();
     let server = Server::start(&esbuild, &strings);
 
+    // Reject wrong credentials through both client paths and IPv6. A trust
+    // rule would accept them; a timeout/refused socket is not auth evidence.
+    for (binding, mode) in [
+        ("HYPERDRIVE", "url"),
+        ("HYPERDRIVE", "fields"),
+        ("HD_V6", "fields"),
+    ] {
+        let rejected = server.get(&format!("/pg/wrong-password?binding={binding}&mode={mode}"));
+        assert_eq!(
+            rejected["code"], "28P01",
+            "{binding}/{mode}: expected invalid_password, got {rejected}"
+        );
+    }
+    let auth = server.get("/pg/auth-config");
+    for requirement in ["scram_password", "scram_hosts", "valid_hba"] {
+        assert_eq!(
+            auth[requirement], true,
+            "fixture requires {requirement}: {auth}"
+        );
+    }
+
     // Both connection paths, SCRAM, and a second request in the same isolate.
     let token = server.get("/token")["token"].clone();
     for mode in ["url", "fields"] {
@@ -384,7 +410,6 @@ fn binding_against_postgres() {
             let row = server.get(&format!("/pg?binding=HYPERDRIVE&mode={mode}"));
             assert_eq!(row["user"], user.as_str(), "{mode}: {row}");
             assert_eq!(row["database"], database.as_str(), "{mode}: {row}");
-            assert_eq!(row["password_encryption"], "scram-sha-256", "{mode}: {row}");
         }
     }
     assert_eq!(server.get("/token")["token"], token, "the isolate changed");

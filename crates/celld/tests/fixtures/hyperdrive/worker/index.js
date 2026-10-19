@@ -30,7 +30,7 @@ async function caught(run) {
   try {
     return { ok: await run() };
   } catch (error) {
-    return { error: error?.name, message: String(error?.message ?? error) };
+    return { error: error?.name, code: error?.code, message: String(error?.message ?? error) };
   }
 }
 
@@ -102,9 +102,7 @@ function clientConfig(binding, mode) {
   return config;
 }
 
-const IDENTITY =
-  "select current_user as user, current_database() as database, " +
-  "current_setting('password_encryption') as password_encryption";
+const IDENTITY = "select current_user as user, current_database() as database";
 
 const routes = {
   async "/token"() {
@@ -206,6 +204,35 @@ const routes = {
     const params = new URL(request.url).searchParams;
     const binding = env[params.get("binding")];
     return (await query(ctx, clientConfig(binding, params.get("mode")), IDENTITY))[0];
+  },
+
+  // This is a disposable superuser fixture, never a production database.
+  // Return booleans only: password verifiers must not leave PostgreSQL.
+  async "/pg/auth-config"(_request, env, ctx) {
+    return (await query(ctx, clientConfig(env.HYPERDRIVE, "url"), `
+      select
+        (select rolpassword like 'SCRAM-SHA-256$%'
+         from pg_authid where rolname = current_user) as scram_password,
+        (select count(*) > 0 and bool_and(auth_method = 'scram-sha-256')
+         from pg_hba_file_rules where type like 'host%') as scram_hosts,
+        (select count(*) = 0
+         from pg_hba_file_rules where error is not null) as valid_hba
+    `))[0];
+  },
+
+  async "/pg/wrong-password"(request, env, ctx) {
+    const params = new URL(request.url).searchParams;
+    const binding = env[params.get("binding")];
+    const config = clientConfig(binding, params.get("mode"));
+    const wrongPassword = binding.password + "-incorrect";
+    if (config.connectionString) {
+      const url = new URL(config.connectionString);
+      url.password = wrongPassword;
+      config.connectionString = url.href;
+    } else {
+      config.password = wrongPassword;
+    }
+    return await caught(() => query(ctx, config, IDENTITY));
   },
 
   async "/pg/setup"(_request, env, ctx) {
