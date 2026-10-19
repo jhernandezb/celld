@@ -67,6 +67,7 @@ pub const SUPPORTED_DEPLOYMENT_FEATURES: &[&str] = &[
     FEATURE_CONTAINERS_V1,
     FEATURE_CRON_V1,
     FEATURE_D1_V1,
+    FEATURE_HYPERDRIVE_V1,
     FEATURE_KV_V1,
     FEATURE_QUEUES_V1,
     FEATURE_SQLITE_VEC_V1,
@@ -115,6 +116,11 @@ pub const FEATURE_WORKFLOWS_V1: &str = "workflows-v1";
 /// because its reserved class is in `do_classes` and the loader refuses a
 /// class it does not know.
 pub const FEATURE_KV_V1: &str = "kv-v1";
+
+/// A deployment with `hyperdrive` bindings. Gated for KV's reason: a build
+/// without Hyperdrive would drop the binding while loading the manifest and
+/// fail only when the application first reads `env.HYPERDRIVE`.
+pub const FEATURE_HYPERDRIVE_V1: &str = "hyperdrive-v1";
 
 /// A deployment with a Queue producer or consumer. A node without the broker
 /// would otherwise omit a producer binding or silently stop consuming.
@@ -296,6 +302,71 @@ pub fn validate_queue_manifest(manifest: &Manifest) -> anyhow::Result<()> {
         .with_context(|| format!("Queue consumer for {:?} is invalid", consumer.queue))?;
     }
     Ok(())
+}
+
+/// Validate every Hyperdrive binding and return the parsed bindings.
+///
+/// Every path that publishes or loads a manifest calls this: `celld deploy`
+/// before it writes, the control plane before a managed manifest reaches the
+/// bucket, and the fleet loader, which keeps the result. None of them connects
+/// to the database, so an outage cannot block a deploy or a load.
+pub fn hyperdrive_bindings(
+    manifest: &Manifest,
+) -> anyhow::Result<Vec<crate::hyperdrive::HyperdriveConfig>> {
+    let bindings = manifest
+        .raw_metadata
+        .get("bindings")
+        .and_then(serde_json::Value::as_array)
+        .map(Vec::as_slice)
+        .unwrap_or_default();
+    let hyperdrive = bindings
+        .iter()
+        .filter(|binding| {
+            binding.get("type").and_then(serde_json::Value::as_str) == Some("hyperdrive")
+        })
+        .collect::<Vec<_>>();
+    if hyperdrive.is_empty() {
+        return Ok(Vec::new());
+    }
+    anyhow::ensure!(
+        manifest
+            .required_features
+            .iter()
+            .any(|feature| feature == FEATURE_HYPERDRIVE_V1),
+        "Hyperdrive deployment does not require {FEATURE_HYPERDRIVE_V1}"
+    );
+    hyperdrive
+        .into_iter()
+        .map(|binding| {
+            let name = binding
+                .get("name")
+                .and_then(serde_json::Value::as_str)
+                .filter(|name| valid_binding_name(name))
+                .context("Hyperdrive binding has an invalid environment name")?;
+            // `celld deploy` refuses a repeated name, but a managed manifest
+            // skips that check, and the environment would keep only the last.
+            let uses = bindings
+                .iter()
+                .filter(|other| other.get("name").and_then(serde_json::Value::as_str) == Some(name))
+                .count();
+            anyhow::ensure!(
+                uses == 1,
+                "Hyperdrive binding {name:?} shares its name with another binding"
+            );
+            anyhow::ensure!(
+                binding
+                    .get("id")
+                    .and_then(serde_json::Value::as_str)
+                    .is_some_and(|id| !id.is_empty()),
+                "Hyperdrive binding {name:?} has no `id`"
+            );
+            let connection_string = binding
+                .get("connection_string")
+                .and_then(serde_json::Value::as_str)
+                .with_context(|| format!("Hyperdrive binding {name:?} has no connection string"))?;
+            crate::hyperdrive::HyperdriveConfig::parse(name, connection_string)
+        })
+        .collect()
 }
 
 fn valid_binding_name(name: &str) -> bool {

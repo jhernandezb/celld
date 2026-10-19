@@ -11,6 +11,8 @@ supports, one service or API at a time:
 - `d1/` — a guestbook on a D1 database
 - `r2/` — object reads, writes, and deletes on an R2 bucket
 - `kv/` — key reads, writes, and deletes in a KV namespace
+- `hyperdrive/` — a PostgreSQL query through a Hyperdrive binding with `pg`;
+  needs `npm install` and a PostgreSQL database
 - `queues/` — a producer and a consumer, with retries and a dead-letter queue
 - `async/` — a timer and asynchronous Durable Object storage
 - `body/` — request and response bodies

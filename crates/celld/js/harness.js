@@ -1234,6 +1234,45 @@ __celld.__makeR2Bucket = (binding, bucketName) => ({
     return __r2Multipart(binding, bucketName, name, { value: id, host });
   },
 });
+// A Hyperdrive binding: a PostgreSQL endpoint reached directly, with no
+// pooler. Rust validated the connection string and computed every field, so
+// nothing here parses a URL. `ip` is null because workerd's address names its
+// pooler, which celld does not have.
+//
+// The fields are prototype getters over a private field, as in workerd, so
+// the instance has no own properties: a structured clone of it, or of any
+// object that holds it, copies no credentials. The brand set lets
+// `encodeLoaderEnv` refuse an instance outright instead of sending `{}`.
+const __hyperdriveBindings = new WeakSet();
+class __HyperdriveBinding {
+  #d;
+  constructor(d) {
+    this.#d = Object.freeze({ ...d });
+    Object.freeze(this);
+    __hyperdriveBindings.add(this);
+  }
+  get connectionString() { return this.#d.connectionString; }
+  get host() { return this.#d.host; }
+  get port() { return this.#d.port; }
+  get user() { return this.#d.user; }
+  get password() { return this.#d.password; }
+  get database() { return this.#d.database; }
+  get ip() { return null; }
+  // A raw socket that the caller may upgrade with `startTls()`. Callers of
+  // workerd's `connect()` expect the platform to supply origin TLS, which
+  // celld does not, so a binding that requires TLS refuses rather than hand
+  // back a plaintext socket.
+  connect() {
+    if (this.#d.tlsRequired)
+      throw new TypeError(
+        "This Hyperdrive binding's sslmode requires TLS, which celld's " +
+        "connect() does not negotiate; use a driver with connectionString.");
+    return __celld.__cfSockets.connect(
+      { hostname: this.#d.host, port: this.#d.port },
+      { secureTransport: "starttls" });
+  }
+}
+__celld.__makeHyperdrive = (d) => new __HyperdriveBinding(d);
 // A host timer op resolves once, so an interval arms a new one after every
 // round. `__timers` maps the id the caller holds to the op that is armed
 // right now: for a timeout that is the same id, and for an interval it is a
@@ -3385,6 +3424,13 @@ __celld.__makeLoader = () => {
         throw new DOMException(
           `Worker Loader env contains the reserved key ` +
           `${JSON.stringify(__loaderServiceMarker)}.`,
+          "DataCloneError");
+      // Before the custom-prototype return below, which would hand the
+      // instance to the structured clone and send the child an empty object
+      // where the parent expected a binding.
+      if (__hyperdriveBindings.has(v))
+        throw new DOMException(
+          "Worker Loader env supports only Service Binding capabilities.",
           "DataCloneError");
       if (typeof v === "function" || v instanceof __cf.RpcTarget ||
           __stubMeta.has(v) || __doStubMeta.has(v))

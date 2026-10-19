@@ -1,0 +1,12 @@
+{
+  "name": "celld-hyperdrive-example",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "pg": "8.23.1"
+  },
+  "overrides": {
+    "pg-cloudflare": "1.4.1",
+    "pg-connection-string": "2.14.1"
+  }
+}

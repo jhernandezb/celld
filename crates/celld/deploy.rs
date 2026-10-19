@@ -18,8 +18,8 @@ use crate::protocol::{
     asset_blob_key, AssetConfig, AssetEntry, AssetIndex, AssetManifestRef, DeployPointer, Manifest,
     ModuleKind, ModuleRef, QueueConsumerAttachment, QueueConsumerConfig, QueueConsumerDeployment,
     Rollout, RunWorkerFirst, FEATURE_ASSETS_V1, FEATURE_CONTAINERS_V1, FEATURE_CRON_V1,
-    FEATURE_D1_V1, FEATURE_KV_V1, FEATURE_PYTHON_WORKERS_V1, FEATURE_QUEUES_V1, FEATURE_R2_V1,
-    FEATURE_SQLITE_VEC_V1, FEATURE_WASM_V1, FEATURE_WORKFLOWS_V1,
+    FEATURE_D1_V1, FEATURE_HYPERDRIVE_V1, FEATURE_KV_V1, FEATURE_PYTHON_WORKERS_V1,
+    FEATURE_QUEUES_V1, FEATURE_R2_V1, FEATURE_SQLITE_VEC_V1, FEATURE_WASM_V1, FEATURE_WORKFLOWS_V1,
     QUEUE_CONSUMER_ATTACHMENT_SCHEMA_VERSION,
 };
 use anyhow::{anyhow, bail, Context};
@@ -53,6 +53,7 @@ const SUPPORTED_KEYS: &[&str] = &[
     "vars",
     "d1_databases",
     "kv_namespaces",
+    "hyperdrive",
     "queues",
     "workflows",
     "r2_buckets",
@@ -205,6 +206,8 @@ pub struct Options {
     /// reads them from `.dev.vars` or the dotenv files; `celld deploy`
     /// supplies none, so a local credential cannot reach a fleet.
     pub vars: VarOverrides,
+    /// Where each Hyperdrive binding's connection string comes from.
+    pub hyperdrive: HyperdriveSource,
     /// Keep container images in the local engine instead of saving them to
     /// the bucket. `celld dev` runs its node on the same engine that built
     /// them; a fleet needs the tar.
@@ -229,6 +232,50 @@ pub enum VarOverrides {
     DotEnv(BTreeMap<String, String>),
 }
 
+/// The prefix of the variable that carries a Hyperdrive binding's production
+/// connection string, completed by the binding name.
+pub const HYPERDRIVE_PRODUCTION_PREFIX: &str = "CELLD_HYPERDRIVE_CONNECTION_STRING_";
+/// Wrangler's local override of `localConnectionString`, completed by the
+/// binding name.
+pub const HYPERDRIVE_LOCAL_PREFIX: &str = "CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_";
+
+/// Hyperdrive connection strings from the environment, keyed by binding name.
+/// The command that builds the options reads them once, so nothing deeper in
+/// the build consults the process environment.
+///
+/// The two sources never mix. `localConnectionString` is development metadata
+/// in the project file, as `.dev.vars` is, and a fleet deploy ignores it, as
+/// `wrangler deploy` does: a development target never becomes the production
+/// target by accident.
+pub enum HyperdriveSource {
+    /// `celld deploy`: only `CELLD_HYPERDRIVE_CONNECTION_STRING_<BINDING>`,
+    /// and a binding without one fails the build.
+    Production(BTreeMap<String, String>),
+    /// `celld dev`: Wrangler's local rules, the
+    /// `CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_<BINDING>` override and
+    /// then `localConnectionString`.
+    Dev(BTreeMap<String, String>),
+}
+
+impl HyperdriveSource {
+    pub fn production() -> Self {
+        Self::Production(prefixed_env(HYPERDRIVE_PRODUCTION_PREFIX))
+    }
+
+    pub fn dev() -> Self {
+        Self::Dev(prefixed_env(HYPERDRIVE_LOCAL_PREFIX))
+    }
+}
+
+fn prefixed_env(prefix: &str) -> BTreeMap<String, String> {
+    std::env::vars_os()
+        .filter_map(|(name, value)| {
+            let binding = name.to_str()?.strip_prefix(prefix)?.to_string();
+            Some((binding, value.into_string().ok()?))
+        })
+        .collect()
+}
+
 pub fn print_help() {
     let text = "celld deploy — build a Worker with esbuild and write it to the fleet bucket\n\n\
 USAGE:\n  celld deploy [PROJECT] --bucket [s3://|gs://|az://]NAME[/PREFIX] [OPTIONS]\n\n\
@@ -238,6 +285,9 @@ OPTIONS:\n  --config PATH          Same as passing PROJECT positionally\n  --buc
 Credentials come from the standard AWS credential chain, from Google\n\
 Application Default Credentials for a gs:// bucket, or from an Azure storage\n\
 account key, managed identity, or workload identity for an az:// bucket.\n\n\
+Each Hyperdrive binding takes its connection string from\n\
+CELLD_HYPERDRIVE_CONNECTION_STRING_<BINDING>; `localConnectionString` is for\n\
+`celld dev` only.\n\n\
 Worker projects require `esbuild` on PATH; asset-only projects do not. Static\n\
 assets, service bindings, and string vars are supported. Routes are not; use\n\
 Wrangler for route configuration.\n\
@@ -263,6 +313,7 @@ pub fn options_from_arguments(
         local_images: false,
         json: false,
         vars: VarOverrides::None,
+        hyperdrive: HyperdriveSource::production(),
     };
     let mut arguments = arguments.into_iter();
     while let Some(argument) = arguments.next() {
@@ -315,6 +366,7 @@ struct Project {
     crons: Vec<String>,
     has_workflows: bool,
     has_kv: bool,
+    has_hyperdrive: bool,
     queue_consumers: Vec<QueueConsumerConfig>,
     has_queues: bool,
     has_r2: bool,
@@ -535,6 +587,15 @@ impl Built {
                         let id = binding.get("id").and_then(Value::as_str)?;
                         Some((format!("env.{name} (KV)"), id.to_string()))
                     }
+                    Some("hyperdrive") => {
+                        // The endpoint without its credentials.
+                        let connection_string =
+                            binding.get("connection_string").and_then(Value::as_str)?;
+                        let config =
+                            crate::hyperdrive::HyperdriveConfig::parse(name, connection_string)
+                                .ok()?;
+                        Some((format!("env.{name} (Hyperdrive)"), config.redacted()))
+                    }
                     Some("queue") => {
                         let queue = binding.get("queue").and_then(Value::as_str)?;
                         Some((format!("env.{name} (Queue)"), queue.to_string()))
@@ -581,7 +642,7 @@ pub fn build(options: &Options) -> anyhow::Result<Built> {
         .filter(|path| !path.as_os_str().is_empty())
         .map(Path::to_path_buf)
         .unwrap_or_else(|| PathBuf::from("."));
-    let mut project = read_project(&config_path, &root, &options.vars)?;
+    let mut project = read_project(&config_path, &root, &options.vars, &options.hyperdrive)?;
     // Resolve every image before the version is computed: the id is part of
     // the deployment's identity, so a rebuilt image is a new deployment.
     // A fleet deploy builds for the platform the nodes run, which Wrangler
@@ -724,6 +785,9 @@ pub fn build(options: &Options) -> anyhow::Result<Built> {
             if project.has_kv {
                 features.push(FEATURE_KV_V1.to_string());
             }
+            if project.has_hyperdrive {
+                features.push(FEATURE_HYPERDRIVE_V1.to_string());
+            }
             if project.has_queues {
                 features.push(FEATURE_QUEUES_V1.to_string());
             }
@@ -743,6 +807,9 @@ pub fn build(options: &Options) -> anyhow::Result<Built> {
         },
         raw_metadata: project.metadata,
     };
+    // The check every node and the control plane repeat, run before anything
+    // is written so a manifest they would refuse is never published.
+    crate::protocol::hyperdrive_bindings(&manifest)?;
     Ok(Built {
         script_name: project.script_name,
         version,
@@ -1284,7 +1351,12 @@ pub(crate) fn resolve_config(given: Option<PathBuf>) -> anyhow::Result<PathBuf> 
     )
 }
 
-fn read_project(path: &Path, root: &Path, overrides: &VarOverrides) -> anyhow::Result<Project> {
+fn read_project(
+    path: &Path,
+    root: &Path,
+    overrides: &VarOverrides,
+    hyperdrive_source: &HyperdriveSource,
+) -> anyhow::Result<Project> {
     let source =
         std::fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?;
     let config: Value = serde_json::from_str(&strip_jsonc(&source))
@@ -1583,6 +1655,75 @@ fn read_project(path: &Path, root: &Path, overrides: &VarOverrides) -> anyhow::R
         // D1's, it is never a worker export and stays out of `ctx.exports`.
         do_classes.push(KV_CLASS.to_string());
         sqlite_classes.push(KV_CLASS.to_string());
+    }
+    // Before `vars`: the dotenv entries skip every name a binding already
+    // owns, and that check reads `bindings`.
+    let hyperdrive = match object.get("hyperdrive") {
+        None => &[][..],
+        Some(Value::Array(entries)) => entries.as_slice(),
+        Some(_) => bail!("config `hyperdrive` must be an array"),
+    };
+    for entry in hyperdrive {
+        let unsupported = entry
+            .as_object()
+            .ok_or_else(|| anyhow!("config `hyperdrive` entries must be objects"))?
+            .keys()
+            .find(|key| !matches!(key.as_str(), "binding" | "id" | "localConnectionString"));
+        if let Some(key) = unsupported {
+            bail!(
+                "hyperdrive binding declares `{key}`, which celld does not model; \
+                 celld models `binding`, `id`, and `localConnectionString`"
+            );
+        }
+        let binding = entry
+            .get("binding")
+            .and_then(Value::as_str)
+            .ok_or_else(|| anyhow!("hyperdrive binding has no `binding`"))?;
+        if !valid_binding(binding) {
+            bail!("invalid hyperdrive binding name: {binding:?}");
+        }
+        // Wrangler requires `id`. celld keeps it as metadata and resolves
+        // nothing with it: the endpoint is the connection string.
+        let id = entry
+            .get("id")
+            .and_then(Value::as_str)
+            .filter(|id| !id.is_empty())
+            .ok_or_else(|| anyhow!("hyperdrive binding {binding} has no `id`"))?;
+        let local = match entry.get("localConnectionString") {
+            None => None,
+            Some(Value::String(value)) => Some(value.as_str()),
+            Some(_) => bail!(
+                "hyperdrive binding {binding} has a `localConnectionString` that is not a string"
+            ),
+        };
+        let connection_string = match hyperdrive_source {
+            HyperdriveSource::Production(strings) => strings.get(binding).ok_or_else(|| {
+                anyhow!(
+                    "hyperdrive binding {binding} needs its production connection string in \
+                     {HYPERDRIVE_PRODUCTION_PREFIX}{binding}; `celld deploy` does not use \
+                     `localConnectionString`"
+                )
+            })?,
+            HyperdriveSource::Dev(strings) => strings
+                .get(binding)
+                .map(String::as_str)
+                .or(local)
+                .ok_or_else(|| {
+                    anyhow!(
+                        "hyperdrive binding {binding} has no local connection string; set \
+                         `localConnectionString` or {HYPERDRIVE_LOCAL_PREFIX}{binding}"
+                    )
+                })?,
+        };
+        // Parse here as well as on the built manifest, so a bad string fails
+        // before esbuild runs.
+        crate::hyperdrive::HyperdriveConfig::parse(binding, connection_string)?;
+        bindings.push(json!({
+            "type": "hyperdrive",
+            "name": binding,
+            "id": id,
+            "connection_string": connection_string,
+        }));
     }
     let queues = match object.get("queues") {
         None => None,
@@ -1940,6 +2081,7 @@ fn read_project(path: &Path, root: &Path, overrides: &VarOverrides) -> anyhow::R
             || service_count > 0
             || declared_vars
             || !r2_binding_names.is_empty()
+            || !hyperdrive.is_empty()
             || !worker_loaders.is_empty())
     {
         bail!("an asset-only project cannot declare Worker bindings");
@@ -2007,6 +2149,7 @@ fn read_project(path: &Path, root: &Path, overrides: &VarOverrides) -> anyhow::R
         crons,
         has_workflows: !workflows.is_empty(),
         has_kv: !kv_namespaces.is_empty(),
+        has_hyperdrive: !hyperdrive.is_empty(),
         has_queues: !queue_producers.is_empty() || !queue_consumers.is_empty(),
         queue_consumers,
         has_r2: !r2_buckets.is_empty(),

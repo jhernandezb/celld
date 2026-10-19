@@ -592,6 +592,7 @@ async fn deploy_project(config: &Path, store: &Store, logs: bool) -> anyhow::Res
         dry_run: false,
         json: false,
         vars: read_dev_vars(config)?,
+        hyperdrive: deploy::HyperdriveSource::dev(),
         local_images: true,
     })?;
     if logs {

@@ -1753,6 +1753,9 @@ pub async fn apply_deployment(
     validate_managed_class_migrations(&deployment.manifest)?;
     crate::protocol::validate_required_features(&deployment.manifest.required_features)?;
     crate::protocol::validate_queue_manifest(&deployment.manifest)?;
+    // Before the first bucket write: a manifest that nodes would refuse must
+    // not become the active deployment.
+    crate::protocol::hyperdrive_bindings(&deployment.manifest)?;
     // Read the current owner before writing this deployment's immutable
     // objects. A competing Queue consumer must refuse the deployment without
     // leaving a prefix that looks publishable.
