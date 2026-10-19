@@ -1,0 +1,105 @@
+{
+  "accept": [
+    {
+      "url": "postgres://app:secret@db.internal:5433/app",
+      "host": "db.internal", "port": 5433, "user": "app", "password": "secret",
+      "database": "app", "tlsRequired": false
+    },
+    {
+      "url": "postgresql://app@db.internal/app",
+      "host": "db.internal", "port": 5432, "user": "app", "password": "",
+      "database": "app", "tlsRequired": false
+    },
+    {
+      "url": "postgres://app:p%40ss%3Aw0rd@10.0.0.5/caf%C3%A9?sslmode=require&application_name=my+app",
+      "host": "10.0.0.5", "port": 5432, "user": "app", "password": "p@ss:w0rd",
+      "database": "café", "tlsRequired": true
+    },
+    {
+      "url": "postgres://u:pa:ss@[::1]:6432/db",
+      "host": "[::1]", "port": 6432, "user": "u", "password": "pa:ss",
+      "database": "db", "tlsRequired": false
+    },
+    {
+      "url": "postgres://u%20x:p@h/db?sslmode=verify-full",
+      "host": "h", "port": 5432, "user": "u x", "password": "p",
+      "database": "db", "tlsRequired": true
+    },
+    {
+      "url": "postgres://a!b$c:x*y@db-1.example_x/d.b-1?connect_timeout=5&options=-c%20search_path%3Dapp",
+      "host": "db-1.example_x", "port": 5432, "user": "a!b$c", "password": "x*y",
+      "database": "d.b-1", "tlsRequired": false
+    },
+    {
+      "url": "postgres://u:p@[2001:db8::1]/db?sslmode=disable",
+      "host": "[2001:db8::1]", "port": 5432, "user": "u", "password": "p",
+      "database": "db", "tlsRequired": false
+    },
+    {
+      "url": "postgres://u:p@[1:0:0:2::3]/db",
+      "host": "[1:0:0:2::3]", "port": 5432, "user": "u", "password": "p",
+      "database": "db", "tlsRequired": false
+    },
+    {
+      "url": "postgres://u:p@[1::2:0:0:3:4]/db",
+      "host": "[1::2:0:0:3:4]", "port": 5432, "user": "u", "password": "p",
+      "database": "db", "tlsRequired": false
+    },
+    {
+      "url": "postgres://u:p@[::ffff:7f00:1]/db",
+      "host": "[::ffff:7f00:1]", "port": 5432, "user": "u", "password": "p",
+      "database": "db", "tlsRequired": false
+    },
+    {
+      "url": "postgres://u:p@h:65535/my-db?statement_timeout=1000&lock_timeout=10&query_timeout=5&idle_in_transaction_session_timeout=9&fallback_application_name=x",
+      "host": "h", "port": 65535, "user": "u", "password": "p",
+      "database": "my-db", "tlsRequired": false
+    }
+  ],
+  "reject": [
+    { "url": "mysql://u:hunter2@h/db", "error": "MySQL is not supported" },
+    { "url": "http://u:hunter2@h/db", "error": "must start with postgres://" },
+    { "url": "postgres://u:hunter2@h/db#x", "error": "contains `#`" },
+    { "url": "postgres://u:hunter2@h/db?application_name=my app", "error": "whitespace" },
+    { "url": "postgres://u:hunter2@h/caf%C3%A9?application_name=%ZZ", "error": "two-digit escape" },
+    { "url": "postgres://u:hunter2@münchen/db", "error": "non-ASCII" },
+    { "url": "postgres://u:hunter2@localhost", "error": "no database" },
+    { "url": "postgres://u:hunter2@localhost/", "error": "no database" },
+    { "url": "postgres://u:hunter2@h/db/extra", "error": "one path segment" },
+    { "url": "postgres://localhost/db", "error": "no user" },
+    { "url": "postgres://:hunter2@h/db", "error": "empty user" },
+    { "url": "postgres://u:hunter2@h:0/db", "error": "port must be a number" },
+    { "url": "postgres://u:hunter2@h:/db", "error": "port must be a number" },
+    { "url": "postgres://u:hunter2@h:65536/db", "error": "port must be a number" },
+    { "url": "postgres://u:hunter2@h:54x/db", "error": "port must be a number" },
+    { "url": "postgres://u:hunter2@h/db?ssl=true", "error": "query key \"ssl\" is not supported" },
+    { "url": "postgres://u:hunter2@h/db?ssl=no-verify", "error": "query key \"ssl\" is not supported" },
+    { "url": "postgres://u:hunter2@h/db?sslcert=/x", "error": "query key \"sslcert\" is not supported" },
+    { "url": "postgres://u:hunter2@h/db?sslnegotiation=direct", "error": "query key \"sslnegotiation\" is not supported" },
+    { "url": "postgres://u:hunter2@h/db?uselibpqcompat=true", "error": "query key \"uselibpqcompat\" is not supported" },
+    { "url": "postgres://u:hunter2@h/db?host=other", "error": "query key \"host\" is not supported" },
+    { "url": "postgres://u:hunter2@h/db?sslmode=require&sslmode=disable", "error": "repeats the key \"sslmode\"" },
+    { "url": "postgres://u:hunter2@h/db?sslmode=prefer", "error": "use sslmode=require" },
+    { "url": "postgres://u:hunter2@h/db?sslmode=allow", "error": "use sslmode=require" },
+    { "url": "postgres://u:hunter2@h/db?sslmode=no-verify", "error": "use sslmode=require" },
+    { "url": "postgres://u:hunter2@h/db?sslmode=bogus", "error": "must be disable, require" },
+    { "url": "postgres://u:hunter2@[::ffff:127.0.0.1]/db", "error": "canonical form" },
+    { "url": "postgres://u:hunter2@[0:0:0:0:0:0:0:1]/db", "error": "canonical form" },
+    { "url": "postgres://u:hunter2@[::ABCD]/db", "error": "canonical form" },
+    { "url": "postgres://u:hunter2@[::0001]/db", "error": "canonical form" },
+    { "url": "postgres://u:hunter2@[1::2:0:0:0:3]/db", "error": "canonical form" },
+    { "url": "postgres://u:hunter2@[1:0:0:2::3:4]/db", "error": "canonical form" },
+    { "url": "postgres://u:hunter2@[::1/db", "error": "unterminated IPv6" },
+    { "url": "postgres://u:hunter2@[zz::1]/db", "error": "not a valid IPv6" },
+    { "url": "postgres://u:hunter2@[::1]x/db", "error": "other than a port" },
+    { "url": "postgres://u:hunter2@%2Ftmp/db", "error": "the host must be a name" },
+    { "url": "postgres://u:hunter2@h/db%2Fx", "error": "escape %2F" },
+    { "url": "postgres://u:hunter2@h/db%3Fx", "error": "escape %3F" },
+    { "url": "postgres://u:hunter2@h/.", "error": "cannot be `.` or `..`" },
+    { "url": "postgres://u:hunter2@h/%2E%2E", "error": "cannot be `.` or `..`" },
+    { "url": "postgres://u:hunter2%00@h/db", "error": "control character" },
+    { "url": "postgres://u:hunter2%FF@h/db", "error": "UTF-8" },
+    { "url": "postgres://u:hunter2[@h/db", "error": "password contains `[`" },
+    { "url": "postgres://u\"x:hunter2@h/db", "error": "user contains `\"`" }
+  ]
+}
