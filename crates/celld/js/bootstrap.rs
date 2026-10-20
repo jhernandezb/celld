@@ -601,6 +601,7 @@ pub(super) fn build_env(scope: &mut v8::PinScope, config: &WorkerConfig) -> Resu
     let r2_bindings = config.r2_bindings.as_slice();
     let d1_bindings = config.d1_bindings.as_slice();
     let kv_bindings = config.kv_bindings.as_slice();
+    let hyperdrive_bindings = config.hyperdrive_bindings.as_slice();
     let queue_bindings = config.queue_bindings.as_slice();
     let workflow_bindings = config.workflow_bindings.as_slice();
     let vars = config.vars.as_slice();
@@ -634,6 +635,15 @@ pub(super) fn build_env(scope: &mut v8::PinScope, config: &WorkerConfig) -> Resu
                 binding,
                 id,
                 celld_logic::kv::cell_name(id, 0),
+            ));
+        }
+        for binding in hyperdrive_bindings {
+            // JSON is a JavaScript expression, and Rust computed every field
+            // in it, so the harness parses no URL.
+            lines.push_str(&format!(
+                "e[{:?}] = __celld.__makeHyperdrive({});\n",
+                binding.name(),
+                binding.descriptor_json(),
             ));
         }
         for binding in queue_bindings {

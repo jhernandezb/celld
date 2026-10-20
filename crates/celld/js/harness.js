@@ -1234,6 +1234,45 @@ __celld.__makeR2Bucket = (binding, bucketName) => ({
     return __r2Multipart(binding, bucketName, name, { value: id, host });
   },
 });
+// A Hyperdrive binding: a PostgreSQL endpoint reached directly, with no
+// pooler. Rust validated the connection string and computed every field, so
+// nothing here parses a URL. `ip` is null because workerd's address names its
+// pooler, which celld does not have.
+//
+// The fields are prototype getters over a private field, as in workerd, so
+// the instance has no own properties: a structured clone of it, or of any
+// object that holds it, copies no credentials. The brand set lets
+// `encodeLoaderEnv` refuse an instance outright instead of sending `{}`.
+const __hyperdriveBindings = new WeakSet();
+class __HyperdriveBinding {
+  #d;
+  constructor(d) {
+    this.#d = Object.freeze({ ...d });
+    Object.freeze(this);
+    __hyperdriveBindings.add(this);
+  }
+  get connectionString() { return this.#d.connectionString; }
+  get host() { return this.#d.host; }
+  get port() { return this.#d.port; }
+  get user() { return this.#d.user; }
+  get password() { return this.#d.password; }
+  get database() { return this.#d.database; }
+  get ip() { return null; }
+  // A raw socket that the caller may upgrade with `startTls()`. Callers of
+  // workerd's `connect()` expect the platform to supply origin TLS, which
+  // celld does not, so a binding that requires TLS refuses rather than hand
+  // back a plaintext socket.
+  connect() {
+    if (this.#d.tlsRequired)
+      throw new TypeError(
+        "This Hyperdrive binding's sslmode requires TLS, which celld's " +
+        "connect() does not negotiate; use a driver with connectionString.");
+    return __celld.__cfSockets.connect(
+      { hostname: this.#d.host, port: this.#d.port },
+      { secureTransport: "starttls" });
+  }
+}
+__celld.__makeHyperdrive = (d) => new __HyperdriveBinding(d);
 // A host timer op resolves once, so an interval arms a new one after every
 // round. `__timers` maps the id the caller holds to the op that is armed
 // right now: for a timeout that is the same id, and for an interval it is a
@@ -3385,6 +3424,13 @@ __celld.__makeLoader = () => {
         throw new DOMException(
           `Worker Loader env contains the reserved key ` +
           `${JSON.stringify(__loaderServiceMarker)}.`,
+          "DataCloneError");
+      // Before the custom-prototype return below, which would hand the
+      // instance to the structured clone and send the child an empty object
+      // where the parent expected a binding.
+      if (__hyperdriveBindings.has(v))
+        throw new DOMException(
+          "Worker Loader env supports only Service Binding capabilities.",
           "DataCloneError");
       if (typeof v === "function" || v instanceof __cf.RpcTarget ||
           __stubMeta.has(v) || __doStubMeta.has(v))
@@ -11380,6 +11426,43 @@ __celld.__fs = __fsNamespaceProxy(
   "node:fs",
   __fsNamespaceNames,
   ["readdirSync", "readlinkSync"],
+);
+// node:net's address predicates are pure, so they are real here; sockets and
+// servers stay loud stubs until cloudflare:sockets backs them. Drivers probe
+// `net.isIP` before a TLS upgrade to decide whether to send SNI (node-postgres
+// guards with `net.isIP && net.isIP(host) === 0`), and the stub is truthy and
+// throws, so without these a driver's TLS path fails before the handshake.
+// The patterns are Node's own (lib/internal/net.js), so answers match exactly,
+// zone ids and IPv4-mapped IPv6 included.
+const __netV4Seg = "(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])";
+const __netV4Str = `(?:${__netV4Seg}\\.){3}${__netV4Seg}`;
+const __netV6Seg = "(?:[0-9a-fA-F]{1,4})";
+const __netIPv4 = new RegExp(`^${__netV4Str}$`);
+const __netIPv6 = new RegExp("^(?:" +
+  `(?:${__netV6Seg}:){7}(?:${__netV6Seg}|:)|` +
+  `(?:${__netV6Seg}:){6}(?:${__netV4Str}|:${__netV6Seg}|:)|` +
+  `(?:${__netV6Seg}:){5}(?::${__netV4Str}|(?::${__netV6Seg}){1,2}|:)|` +
+  `(?:${__netV6Seg}:){4}(?:(?::${__netV6Seg}){0,1}:${__netV4Str}|(?::${__netV6Seg}){1,3}|:)|` +
+  `(?:${__netV6Seg}:){3}(?:(?::${__netV6Seg}){0,2}:${__netV4Str}|(?::${__netV6Seg}){1,4}|:)|` +
+  `(?:${__netV6Seg}:){2}(?:(?::${__netV6Seg}){0,3}:${__netV4Str}|(?::${__netV6Seg}){1,5}|:)|` +
+  `(?:${__netV6Seg}:){1}(?:(?::${__netV6Seg}){0,4}:${__netV4Str}|(?::${__netV6Seg}){1,6}|:)|` +
+  `(?::(?:(?::${__netV6Seg}){0,5}:${__netV4Str}|(?::${__netV6Seg}){1,7}|:))` +
+")(?:%[0-9a-zA-Z-.:]{1,})?$");
+const __netIsIPv4 = (input) => __netIPv4.test(input);
+const __netIsIPv6 = (input) => __netIPv6.test(input);
+__celld.__netModule = __fsNamespaceProxy(
+  {
+    isIP: (input) => __netIsIPv4(input) ? 4 : __netIsIPv6(input) ? 6 : 0,
+    isIPv4: __netIsIPv4,
+    isIPv6: __netIsIPv6,
+  },
+  "node:net",
+  [
+    "BlockList", "Server", "Socket", "SocketAddress", "Stream", "connect",
+    "createConnection", "createServer", "getDefaultAutoSelectFamily",
+    "getDefaultAutoSelectFamilyAttemptTimeout", "setDefaultAutoSelectFamily",
+    "setDefaultAutoSelectFamilyAttemptTimeout",
+  ],
 );
 const __bridgeResponseStream = (body, requestControllers) => {
   const streamId = __response_stream_create();

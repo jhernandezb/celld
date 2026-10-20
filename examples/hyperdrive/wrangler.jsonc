@@ -1,0 +1,15 @@
+{
+  "name": "hyperdrive",
+  "main": "index.js",
+  "compatibility_date": "2026-01-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "hyperdrive": [
+    {
+      "binding": "HYPERDRIVE",
+      "id": "example-db",
+      // `celld dev` connects here. `celld deploy` ignores this value and reads
+      // CELLD_HYPERDRIVE_CONNECTION_STRING_HYPERDRIVE instead.
+      "localConnectionString": "postgres://postgres:postgres@localhost:5432/postgres"
+    }
+  ]
+}

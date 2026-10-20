@@ -1896,6 +1896,9 @@ pub struct WorkerConfig {
     /// the config's `id` verbatim, and it addresses the namespace's cells; see
     /// [[kv]].
     kv_bindings: Vec<(String, String)>,
+    /// `hyperdrive`: each binding validated once, at manifest load. The
+    /// environment installs the fields computed here; see [[hyperdrive]].
+    hyperdrive_bindings: Vec<crate::hyperdrive::HyperdriveConfig>,
     queue_bindings: Vec<QueueBinding>,
     pub(crate) queue_consumers: Vec<QueueConsumerRegistration>,
     /// This script declared a consumer in its own manifest. The deployment-
@@ -2023,6 +2026,7 @@ impl WorkerConfig {
             r2_bindings,
             d1_bindings,
             kv_bindings,
+            hyperdrive_bindings,
             queue_bindings,
             queue_consumers,
             workflow_bindings,
@@ -2053,6 +2057,7 @@ impl WorkerConfig {
             r2_bindings,
             d1_bindings,
             kv_bindings,
+            hyperdrive_bindings,
             queue_bindings,
             queue_consumers,
             declares_queue_consumer,
@@ -7671,6 +7676,7 @@ fn op_loader_load(
             // ambient bindings are exactly what Code Mode withholds.
             d1_bindings: Vec::new(),
             kv_bindings: Vec::new(),
+            hyperdrive_bindings: Vec::new(),
             queue_bindings: Vec::new(),
             queue_consumers: Vec::new(),
             workflow_bindings: Vec::new(),

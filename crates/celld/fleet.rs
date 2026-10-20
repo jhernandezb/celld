@@ -777,6 +777,7 @@ async fn load_worker_at_pointer(
     }
     crate::protocol::validate_required_features(&manifest.required_features)?;
     crate::protocol::validate_queue_manifest(&manifest)?;
+    let hyperdrive_bindings = crate::protocol::hyperdrive_bindings(&manifest)?;
     // Old managed uploads can contain AI metadata without a required-feature
     // gate. Refuse it before loading code, rather than serve a missing binding.
     anyhow::ensure!(
@@ -939,6 +940,7 @@ async fn load_worker_at_pointer(
             r2_bindings,
             d1_bindings,
             kv_bindings,
+            hyperdrive_bindings,
             queue_bindings,
             queue_consumers: manifest.queue_consumers,
             workflow_bindings,

@@ -305,6 +305,7 @@ pub struct WorkerConfigOptions {
     pub r2_bindings: Vec<(String, String)>,
     pub d1_bindings: Vec<(String, String)>,
     pub kv_bindings: Vec<(String, String)>,
+    pub hyperdrive_bindings: Vec<crate::hyperdrive::HyperdriveConfig>,
     pub queue_bindings: Vec<QueueBinding>,
     pub queue_consumers: Vec<crate::protocol::QueueConsumerConfig>,
     pub workflow_bindings: Vec<WorkflowBinding>,

@@ -109,8 +109,17 @@ fn build_tls_connector(extra_root: Option<Vec<u8>>) -> tokio_rustls::TlsConnecto
     tokio_rustls::TlsConnector::from(Arc::new(config))
 }
 
+/// A URL-parsed address keeps an IPv6 literal bracketed (`[::1]`), and that
+/// is what `connect()` and drivers hand over; neither the resolver nor a TLS
+/// server name accepts the bracketed form.
+fn unbracketed(host: &str) -> &str {
+    host.strip_prefix('[')
+        .and_then(|inner| inner.strip_suffix(']'))
+        .unwrap_or(host)
+}
+
 async fn handshake(stream: Duplex, host: String) -> Result<Duplex, String> {
-    let name = rustls::pki_types::ServerName::try_from(host)
+    let name = rustls::pki_types::ServerName::try_from(unbracketed(&host).to_string())
         .map_err(|error| format!("invalid TLS server name: {error}"))?;
     let tls = tls_connector()
         .connect(name, stream)
@@ -163,7 +172,7 @@ pub(super) fn op_tcp_connect(
     let gate = egress_gate_request(&event_context(scope), celld_logic::Channel::Tcp);
     let async_id = asyncrt::enqueue(async move {
         await_egress_gate(gate).await?;
-        let stream = tokio::net::TcpStream::connect((request.hostname.as_str(), request.port))
+        let stream = tokio::net::TcpStream::connect((unbracketed(&request.hostname), request.port))
             .await
             .map_err(|error| {
                 format!(

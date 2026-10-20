@@ -29,7 +29,7 @@ An unsupported feature that does not cause an error is a defect.
 | [R2](services/r2.md) | **Yes** |
 | Workers AI | **No** |
 | Vectorize | **No** |
-| Hyperdrive | **No** |
+| [Hyperdrive](services/hyperdrive.md) | **Partial** — PostgreSQL, direct connection, no pooling or caching; TLS needs a publicly trusted certificate |
 | Browser Rendering | **No** |
 | Email Workers | **No** |
 | [Python Workers](services/workers.md#python-workers) | **Partial** — `fetch` handlers on the Pyodide 0.28 runtime line |
@@ -211,8 +211,8 @@ The accepted top-level keys:
 - `compatibility_date` and `compatibility_flags`
 - `durable_objects` and `migrations`
 - `assets`, `services`, `triggers`, and `vars`
-- `d1_databases`, `kv_namespaces`, `queues`, `workflows`, and
-  `r2_buckets`
+- `d1_databases`, `kv_namespaces`, `hyperdrive`, `queues`, `workflows`,
+  and `r2_buckets`
 - `worker_loaders` and `containers`
 - `define` and `rules`
 

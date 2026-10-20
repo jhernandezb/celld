@@ -1,0 +1,19 @@
+{
+  "name": "hyperdrive-test",
+  "main": "index.js",
+  "compatibility_date": "2026-01-01",
+  "compatibility_flags": ["nodejs_compat"],
+  // Nothing listens on port 1. A run against PostgreSQL replaces these with
+  // CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_<BINDING>.
+  "hyperdrive": [
+    { "binding": "HYPERDRIVE", "id": "test", "localConnectionString": "postgres://celld:hunter2@127.0.0.1:1/celld" },
+    { "binding": "HD_TLS", "id": "test-tls", "localConnectionString": "postgres://celld:hunter2@127.0.0.1:1/celld?sslmode=require" },
+    { "binding": "HD_CAFE", "id": "test-cafe", "localConnectionString": "postgres://celld:hunter2@127.0.0.1:1/caf%C3%A9" },
+    { "binding": "HD_V6", "id": "test-v6", "localConnectionString": "postgres://celld:hunter2@[::1]:1/celld" }
+  ],
+  "worker_loaders": [{ "binding": "LOADER" }],
+  "durable_objects": {
+    "bindings": [{ "name": "ECHO", "class_name": "Echo" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Echo"] }]
+}

@@ -51,6 +51,7 @@ fleet bucket. Each row links to a project that deploys as-is:
 | Queues: producers, batching consumers, retries, dead letters | [`queues`](examples/queues) |
 | D1: SQL databases, batches, migrations | [`d1`](examples/d1) |
 | R2: reads, writes, lists, multipart uploads | [`r2`](examples/r2) |
+| Hyperdrive: PostgreSQL through `pg`, connected directly | [`hyperdrive`](examples/hyperdrive) |
 | Workflows: durable steps, sleeps, events, pause and restart | [`workflow`](examples/workflow) |
 | Cron Triggers: one run for each occurrence across the fleet | [`cron`](examples/cron) |
 | Static assets: asset-only or with a Worker, `_headers`, `_redirects` | [`static-assets`](examples/static-assets) |
